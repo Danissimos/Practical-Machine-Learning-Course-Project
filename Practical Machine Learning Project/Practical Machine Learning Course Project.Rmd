@@ -1,0 +1,161 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Danila Skakov"
+date: "2023-09-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Task
+
+Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: 
+http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har
+ (see the section on the Weight Lifting Exercise Dataset).
+
+
+Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+## Intro
+
+In this project I performed analysis of the data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways, thus, the target variable includes 5 clases to identify. 
+
+The Project includes:
+
+- import dataset
+
+- preprocessing of data and EDA
+
+- cross-validation and model selection
+
+- prediction of classes for 20 cases
+
+## Import datasets
+
+Import necessary libraries
+```{r libraries, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(dplyr)
+library(caret)
+library(tibble)
+library(psych)
+library(corrplot)
+```
+Import two datasets: one with variables and target variable, the other - with 20 cases for classification
+```{r datasets}
+trainSource <- "C:/Users/skako/Documents/rstudio projects/Practical Machine Learning Project/pml-training.csv"
+validSource <- "C:/Users/skako/Documents/rstudio projects/Practical Machine Learning Project/pml-testing.csv"
+train <- read.csv(trainSource)
+valid <- read.csv(validSource)
+```
+
+## Preprocessing and EDA
+
+We have 160 potential predictors to analyse. That's a huge number. Classical ways to do that (such as making plots, print summary statistics) may be not so informative due to amount of columns. Therefore It may be a good idea to start with selecting columns with small amount of NaN and empty values.
+```{r col number}
+ncol(train)
+ncol(valid)
+```
+For the train set we have 19622 values, which is big enough to use ML-algorithms. For classification we have 20 cases.
+```{r row number}
+nrow(train)
+nrow(valid)
+```
+There are 5 classes that are approximately evenly distributed.
+```{r classes distribution}
+table(train$classe)
+```
+At that point let's start with selecting variables with small amount of NaN and empty values.
+
+
+## Preprocessing and EDA
+
+100 of 160 variables have 19216 blank or NaN values. That's almost 100% of all values (19622 in total). So, we can just exclude them from further usage
+```{r blank and na analysis}
+na_count <-sapply(train, function(train) sum(length(which(is.na(train)))))
+na_count <- data.frame(na_count)
+na_count <- tibble::rownames_to_column(na_count, "Columns")
+
+blank_count <-sapply(train, function(train) sum(length(which(train == ''))))
+blank_count <- data.frame(blank_count)
+blank_count <- tibble::rownames_to_column(blank_count, "Columns")
+
+na_and_blank <- full_join(na_count, blank_count, by='Columns')
+na_and_blank <- transform(na_and_blank, All = na_count + blank_count)
+
+na_and_blank_summary <- na_and_blank %>% group_by(All)
+na_and_blank_summary <- na_and_blank_summary %>% summarise(n = n())
+na_and_blank_summary
+```
+
+Exclusion of columns
+```{r predictors exclusion}
+for_selection <- filter(na_and_blank, All == 0)
+for_selection_columns <- for_selection$Columns
+train <- select(train,one_of(for_selection_columns))
+```
+
+Additional, we can exclude columns "X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp".
+```{r dataset for model selection}
+train = train[-c(1, 3, 4, 5)]
+ncol(train)
+colnames(train)
+```
+As a result, we have now only 56 predictors instead of 160. At that moment it's a good idea to put all of them into models.
+
+
+## Cross-validation and model selection
+
+Here I will try to put all 56 predictors into two  models: random forest and gradient boosting. Additional I will use cross-validation with k-folds = 5 and train/test split with ratio = 0.8.
+To validate the models I will use such metrics as Accuracy and Out-Of-Sample error with Confusion Matrics.
+
+```{r k-folds and train/test split}
+forTrain <- createDataPartition(y=train$classe, p=0.8, list=F)
+train <- train[forTrain,]
+test <- train[-forTrain,]
+
+cv <- trainControl(method="cv", number=5, verboseIter=F)
+```
+
+First let's build Random Forest algorithm.
+```{r random forest}
+random_forest <- train(classe~., data=train, method="rf", trControl = cv, ntree = 200)
+pred_random_forest <- predict(random_forest, test)
+random_forest_conf_matrix <- confusionMatrix(pred_random_forest, factor(test$classe))
+random_forest_conf_matrix
+```
+
+And then Gradient Boosting algorithm
+```{r gradient boosting}
+gradient_boosting<- train(classe~., data=train, method="gbm", trControl = cv, verbose = F)
+pred_gradient_boosting <- predict(gradient_boosting, test)
+gradient_boosting_conf_matrix <- confusionMatrix(pred_gradient_boosting, factor(test$classe))
+gradient_boosting_conf_matrix
+```
+
+Random Forest algorithm gave 100% Accuracy and 0% Out-Of-Sample Error on train/test dataset. Therefore, for a excellent prediction we can use that model.
+
+
+## Prediction of classes for 20 cases
+
+Predicted classes:
+```{r predictions}
+print(predict(random_forest, valid))
+```
+
+## Summary
+
+In this project I performed EDA, preprocessing, cross-validation and model selection of the given dataset. The result is a Random Forest based model that gave 100% Accuracy on train/test split with ration = 0.8 and cross-validation with k-folds = 5. For the task to classify 20 cases the work is done. Still we can spare a bit more time to try to find predictors that are not significant for the model and to figure out how they correlate with one another
